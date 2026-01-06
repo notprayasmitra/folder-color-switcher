@@ -1,4 +1,5 @@
 use std::io::stdout;
+use std::process::Command;
 use crossterm::{
     execute,
     terminal::{Clear, ClearType},
@@ -57,11 +58,31 @@ fn color_from_name(name: &str) -> Color {
     }
 }
 
-fn print_color_list(colors: &[&str]) {
+fn print_color_list(colors: &[&str], current_index: usize) {
     for (i, color_name) in colors.iter().enumerate() {
         let colored_name = color_name.with(color_from_name(color_name));
-        println!("  [{:>2}] {}", i + 1, colored_name);
+        let marker = if i == current_index { "●" } else { " " }; // white dot for current
+        println!(" {} [{:>2}] {}", marker, i + 1, colored_name);
     }
+}
+
+fn get_current_color() -> String {
+    let output = Command::new("scripts/papirus-fetch.sh")
+        .arg("Papirus-Dark")
+        .arg("list")
+        .output()
+        .expect("Failed to run papirus-fetch.sh");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+
+    for line in stdout.lines() {
+        let trimmed = line.trim();
+        if trimmed.starts_with('>') {
+            return trimmed[1..].trim().to_string();
+        }
+    }
+
+    String::new() // fallback string
 }
 
 fn main() {
@@ -69,5 +90,14 @@ fn main() {
     print_headers();
 
     let colors = folder_colors();
-    print_color_list(&colors);
+    // let current_color_index = 3; //hardcoded string
+
+    let current_color_name = get_current_color();
+
+    let current_color_index = colors
+        .iter()
+        .position(|&c| c == current_color_name)
+        .unwrap_or(0); // fallback if not found
+
+    print_color_list(&colors, current_color_index);
 }
