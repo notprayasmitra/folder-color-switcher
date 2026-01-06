@@ -1,11 +1,21 @@
 use std::io::stdout;
 use std::process::Command;
 use crossterm::{
-    execute,
-    terminal::{Clear, ClearType},
     cursor::MoveTo,
+    event::{self, Event, KeyCode},
+    execute,
+    style::{Color, Stylize, Print},
+    terminal::{Clear, ClearType, enable_raw_mode, disable_raw_mode},
 };
-use crossterm::style::{Color, Stylize};
+
+
+fn setup_terminal() {
+    enable_raw_mode().unwrap();
+}
+
+fn restore_terminal() {
+    disable_raw_mode().unwrap();
+}
 
 fn clear_screen() {
     execute!(
@@ -17,9 +27,18 @@ fn clear_screen() {
 }
 
 fn print_headers() {
-    println!("╔═══════════════════════════════════════════╗");
-    println!("║       Papirus Folder Color Switcher       ║");
-    println!("╚═══════════════════════════════════════════╝\n");
+    let mut out = stdout();
+
+    execute!(
+        out,
+        MoveTo(0, 0),
+        Print("╔═══════════════════════════════════════════╗"),
+        MoveTo(0, 1),
+        Print("║       Papirus Folder Color Switcher       ║"),
+        MoveTo(0, 2),
+        Print("╚═══════════════════════════════════════════╝"),
+    )
+    .unwrap();
 }
 
 fn folder_colors() -> Vec<&'static str> {
@@ -58,11 +77,22 @@ fn color_from_name(name: &str) -> Color {
     }
 }
 
-fn print_color_list(colors: &[&str], current_index: usize) {
+fn print_color_list(
+    colors: &[&str],
+    selected_index: usize,
+    current_index: usize,
+) {
+    let mut y = 4; // start after header
+
     for (i, color_name) in colors.iter().enumerate() {
-        let colored_name = color_name.with(color_from_name(color_name)); // Hollow dot is unselected, while filled fot is crrent folder color
-        let dot = if i == current_index { "●" } else { "○" };
-        println!("  {} {}", dot, colored_name);
+        execute!(stdout(), MoveTo(0, y)).unwrap();
+
+        let colored_name = color_name.with(color_from_name(color_name));
+        let arrow = if i == selected_index { ">" } else { " " };
+        let dot   = if i == current_index  { "●" } else { "○" };
+
+        println!("{} [{}] {}", arrow, dot, colored_name);
+        y += 1;
     }
 }
 
@@ -85,19 +115,51 @@ fn get_current_color() -> String {
     String::new() // fallback string
 }
 
+fn handle_input(selected: &mut usize, max: usize) -> bool {
+    if let Event::Key(key) = event::read().unwrap() {
+        match key.code {
+            KeyCode::Up if *selected > 0 => *selected -= 1,
+            KeyCode::Down if *selected < max - 1 => *selected += 1,
+            KeyCode::Enter => return true,
+            KeyCode::Esc => return true,
+            _ => {}
+        }
+    }
+    false
+}
+
+fn set_color(color: &str) {
+    Command::new("scripts/papirus.sh")
+        .arg("Papirus-Dark")
+        .arg("set")
+        .arg(color)
+        .status()
+        .expect("Failed to set color");
+}
+
 fn main() {
-    clear_screen();
-    print_headers();
+    setup_terminal();
 
     let colors = folder_colors();
-    // let current_color_index = 3; //hardcoded string
-
     let current_color_name = get_current_color();
 
-    let current_color_index = colors
+    let current_index = colors
         .iter()
         .position(|&c| c == current_color_name)
-        .unwrap_or(0); // fallback if not found
+        .unwrap_or(0);
 
-    print_color_list(&colors, current_color_index);
+    let mut selected_index = current_index;
+
+    loop {
+        clear_screen();
+        print_headers();
+        print_color_list(&colors, selected_index, current_index);
+
+        if handle_input(&mut selected_index, colors.len()) {
+            set_color(colors[selected_index]);
+            break;
+        }
+    }
+
+    restore_terminal();
 }
