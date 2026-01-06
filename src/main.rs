@@ -60,9 +60,9 @@ fn color_from_name(name: &str) -> Color {
 
 fn print_color_list(colors: &[&str], current_index: usize) {
     for (i, color_name) in colors.iter().enumerate() {
-        let colored_name = color_name.with(color_from_name(color_name));
-        let marker = if i == current_index { "●" } else { " " }; // white dot for current
-        println!(" {} [{:>2}] {}", marker, i + 1, colored_name);
+        let colored_name = color_name.with(color_from_name(color_name)); // Hollow dot is unselected, while filled fot is crrent folder color
+        let dot = if i == current_index { "●" } else { "○" };
+        println!("  {} {}", dot, colored_name);
     }
 }
 
