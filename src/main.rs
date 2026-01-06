@@ -8,6 +8,32 @@ use crossterm::{
     terminal::{Clear, ClearType, enable_raw_mode, disable_raw_mode},
 };
 
+fn run_app() {
+    let colors = folder_colors();
+    let current_color_name = get_current_color();
+
+    let current_index = colors
+        .iter()
+        .position(|&c| c == current_color_name)
+        .unwrap_or(0);
+
+    let mut selected_index = current_index;
+
+    loop {
+        clear_screen();
+        print_headers();
+        print_color_list(&colors, selected_index, current_index);
+
+        match handle_input(&mut selected_index, colors.len()) {
+            Action::Apply => {
+                set_color(colors[selected_index]);
+                break;
+            }
+            Action::Exit => break,
+            Action::None => {}
+        }
+    }
+}
 
 fn setup_terminal() {
     enable_raw_mode().unwrap();
@@ -115,17 +141,10 @@ fn get_current_color() -> String {
     String::new() // fallback string
 }
 
-fn handle_input(selected: &mut usize, max: usize) -> bool {
-    if let Event::Key(key) = event::read().unwrap() {
-        match key.code {
-            KeyCode::Up if *selected > 0 => *selected -= 1,
-            KeyCode::Down if *selected < max - 1 => *selected += 1,
-            KeyCode::Enter => return true,
-            KeyCode::Esc => return true,
-            _ => {}
-        }
-    }
-    false
+enum Action {
+    None,
+    Apply,
+    Exit,
 }
 
 fn set_color(color: &str) {
@@ -137,8 +156,32 @@ fn set_color(color: &str) {
         .expect("Failed to set color");
 }
 
+fn handle_input(selected: &mut usize, max: usize) -> Action {
+    if let Event::Key(key) = event::read().unwrap() {
+        match key.code {
+            KeyCode::Up if *selected > 0 => {
+                *selected -= 1;
+                Action::None
+            }
+            KeyCode::Down if *selected < max - 1 => {
+                *selected += 1;
+                Action::None
+            }
+            KeyCode::Enter => Action::Apply,
+            KeyCode::Esc => Action::Exit,
+            _ => Action::None,
+        }
+    } else {
+        Action::None
+    }
+}
+
 fn main() {
     setup_terminal();
+
+    let _ = std::panic::catch_unwind(|| {
+        run_app();
+    });
 
     let colors = folder_colors();
     let current_color_name = get_current_color();
@@ -155,9 +198,15 @@ fn main() {
         print_headers();
         print_color_list(&colors, selected_index, current_index);
 
-        if handle_input(&mut selected_index, colors.len()) {
-            set_color(colors[selected_index]);
-            break;
+        match handle_input(&mut selected_index, colors.len()) {
+            Action::Apply => {
+                set_color(colors[selected_index]);
+                break;
+            }
+            Action::Exit => {
+                break;
+            }
+            Action::None => {}
         }
     }
 
