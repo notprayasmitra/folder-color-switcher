@@ -1,6 +1,5 @@
 use std::io::stdout;
-use std::path::PathBuf;
-use std::process::{Command, Stdio};
+use std::process::Command;
 use crossterm::{
     cursor::MoveTo,
     event::{self, Event, KeyCode},
@@ -19,19 +18,49 @@ fn run_app() {
         .unwrap_or(0);
 
     let mut selected_index = current_index;
+    let mut error_message: Option<String> = None;
 
     loop {
         clear_screen();
         print_headers();
         print_color_list(&colors, selected_index, current_index);
 
+        // Display error message if any
+        if let Some(ref msg) = error_message {
+            let y = colors.len() as u16 + 5;
+            execute!(
+                stdout(),
+                MoveTo(0, y),
+                Print(format!("Error: {}", msg).with(Color::Red))
+            )
+            .unwrap();
+        }
+
         match handle_input(&mut selected_index, colors.len()) {
             Action::Apply => {
-                set_color(colors[selected_index]);
-                break;
+                clear_screen();
+                print_headers();
+                print_color_list(&colors, selected_index, current_index);
+                
+                let y = colors.len() as u16 + 5;
+                execute!(
+                    stdout(),
+                    MoveTo(0, y),
+                    Print("Applying color...".with(Color::Yellow))
+                )
+                .unwrap();
+                
+                match set_color(colors[selected_index]) {
+                    Ok(_) => break,
+                    Err(e) => {
+                        error_message = Some(e);
+                    }
+                }
             }
             Action::Exit => break,
-            Action::None => {}
+            Action::None => {
+                error_message = None; // Clear error on navigation
+            }
         }
     }
 }
@@ -51,12 +80,6 @@ fn clear_screen() {
         MoveTo(0, 0)
     )
     .unwrap();
-}
-
-fn script_path() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("scripts")
-        .join("papirus.sh")
 }
 
 fn print_headers() {
@@ -130,22 +153,25 @@ fn print_color_list(
 }
 
 fn get_current_color() -> String {
-    let output = Command::new(script_path())
+    let output = Command::new("papirus-folders")
+        .arg("-l")
+        .arg("--theme")
         .arg("Papirus-Dark")
-        .arg("list")
-        .output()
-        .expect("Failed to run papirus.sh");
-
-    let stdout = String::from_utf8_lossy(&output.stdout);
-
-    for line in stdout.lines() {
-        let trimmed = line.trim();
-        if trimmed.starts_with('>') {
-            return trimmed[1..].trim().to_string();
+        .output();
+    
+    if let Ok(output) = output {
+        if output.status.success() {
+            let stdout = String::from_utf8_lossy(&output.stdout);
+            for line in stdout.lines() {
+                let trimmed = line.trim();
+                if trimmed.starts_with('>') {
+                    return trimmed[1..].trim().to_string();
+                }
+            }
         }
     }
 
-    String::new() // fallback string
+    String::from("adwaita") // default fallback
 }
 
 enum Action {
@@ -154,15 +180,24 @@ enum Action {
     Exit,
 }
 
-fn set_color(color: &str) {
-    Command::new(script_path())
+fn set_color(color: &str) -> Result<(), String> {
+    // Apply the color (skip cache update with -o flag to avoid hang)
+    let output = Command::new("papirus-folders")
+        .arg("-t")
         .arg("Papirus-Dark")
-        .arg("set")
+        .arg("--color")
         .arg(color)
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .status()
-        .expect("Failed to set color");
+        .arg("-o")
+        .output()
+        .map_err(|e| format!("Failed to execute papirus-folders: {}. Is it installed?", e))?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        return Err(format!("Command failed: {}{}", stderr, stdout));
+    }
+
+    Ok(())
 }
 
 fn handle_input(selected: &mut usize, max: usize) -> Action {
@@ -177,7 +212,7 @@ fn handle_input(selected: &mut usize, max: usize) -> Action {
                 Action::None
             }
             KeyCode::Enter => Action::Apply,
-            KeyCode::Esc => Action::Exit,
+            KeyCode::Esc | KeyCode::Char('q') => Action::Exit,
             _ => Action::None,
         }
     } else {
@@ -188,9 +223,16 @@ fn handle_input(selected: &mut usize, max: usize) -> Action {
 fn main() {
     setup_terminal();
 
-    let _ = std::panic::catch_unwind(|| {
+    let result = std::panic::catch_unwind(|| {
         run_app();
     });
 
     restore_terminal();
+    
+    // Clear screen after restoring terminal
+    println!();
+    
+    if result.is_err() {
+        eprintln!("Application panicked!");
+    }
 }
