@@ -1,7 +1,7 @@
 use std::io::stdout;
 use std::process::Command;
 use crossterm::{
-    cursor::MoveTo,
+    cursor::{MoveTo, Hide, Show},
     event::{self, Event, KeyCode},
     execute,
     style::{Color, Stylize, Print},
@@ -38,21 +38,23 @@ fn run_app() {
 
         match handle_input(&mut selected_index, colors.len()) {
             Action::Apply => {
+                // Restore terminal before running command that needs user input
+                restore_terminal();
                 clear_screen();
-                print_headers();
-                print_color_list(&colors, selected_index, current_index);
-                
-                let y = colors.len() as u16 + 5;
-                execute!(
-                    stdout(),
-                    MoveTo(0, y),
-                    Print("Applying color...".with(Color::Yellow))
-                )
-                .unwrap();
+                println!("\nApplying {} color...\n", colors[selected_index]);
                 
                 match set_color(colors[selected_index]) {
-                    Ok(_) => break,
+                    Ok(_) => {
+                        println!("✓ Color applied successfully!");
+                        break;
+                    }
                     Err(e) => {
+                        println!("✗ Error: {}", e);
+                        println!("\nPress Enter to continue...");
+                        let _ = std::io::stdin().read_line(&mut String::new());
+                        
+                        // Re-setup terminal and continue
+                        setup_terminal();
                         error_message = Some(e);
                     }
                 }
@@ -67,10 +69,12 @@ fn run_app() {
 
 fn setup_terminal() {
     enable_raw_mode().unwrap();
+    execute!(stdout(), Hide).unwrap();
 }
 
 fn restore_terminal() {
     disable_raw_mode().unwrap();
+    execute!(stdout(), Show).unwrap();
 }
 
 fn clear_screen() {
@@ -181,13 +185,12 @@ enum Action {
 }
 
 fn set_color(color: &str) -> Result<(), String> {
-    // Apply the color (skip cache update with -o flag to avoid hang)
+    // Apply the color without the -o flag so it persists
     let output = Command::new("papirus-folders")
         .arg("-t")
         .arg("Papirus-Dark")
         .arg("--color")
         .arg(color)
-        .arg("-o")
         .output()
         .map_err(|e| format!("Failed to execute papirus-folders: {}. Is it installed?", e))?;
 
@@ -227,10 +230,8 @@ fn main() {
         run_app();
     });
 
+    // Always restore terminal, even if there's a panic
     restore_terminal();
-    
-    // Clear screen after restoring terminal
-    println!();
     
     if result.is_err() {
         eprintln!("Application panicked!");
