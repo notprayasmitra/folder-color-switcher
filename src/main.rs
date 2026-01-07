@@ -1,5 +1,6 @@
 use std::io::stdout;
-use std::process::Command;
+use std::path::PathBuf;
+use std::process::{Command, Stdio};
 use crossterm::{
     cursor::MoveTo,
     event::{self, Event, KeyCode},
@@ -50,6 +51,12 @@ fn clear_screen() {
         MoveTo(0, 0)
     )
     .unwrap();
+}
+
+fn script_path() -> PathBuf {
+    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("scripts")
+        .join("papirus.sh")
 }
 
 fn print_headers() {
@@ -123,11 +130,11 @@ fn print_color_list(
 }
 
 fn get_current_color() -> String {
-    let output = Command::new("scripts/papirus-fetch.sh")
+    let output = Command::new(script_path())
         .arg("Papirus-Dark")
         .arg("list")
         .output()
-        .expect("Failed to run papirus-fetch.sh");
+        .expect("Failed to run papirus.sh");
 
     let stdout = String::from_utf8_lossy(&output.stdout);
 
@@ -148,10 +155,12 @@ enum Action {
 }
 
 fn set_color(color: &str) {
-    Command::new("scripts/papirus.sh")
+    Command::new(script_path())
         .arg("Papirus-Dark")
         .arg("set")
         .arg(color)
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
         .status()
         .expect("Failed to set color");
 }
@@ -182,33 +191,6 @@ fn main() {
     let _ = std::panic::catch_unwind(|| {
         run_app();
     });
-
-    let colors = folder_colors();
-    let current_color_name = get_current_color();
-
-    let current_index = colors
-        .iter()
-        .position(|&c| c == current_color_name)
-        .unwrap_or(0);
-
-    let mut selected_index = current_index;
-
-    loop {
-        clear_screen();
-        print_headers();
-        print_color_list(&colors, selected_index, current_index);
-
-        match handle_input(&mut selected_index, colors.len()) {
-            Action::Apply => {
-                set_color(colors[selected_index]);
-                break;
-            }
-            Action::Exit => {
-                break;
-            }
-            Action::None => {}
-        }
-    }
 
     restore_terminal();
 }
